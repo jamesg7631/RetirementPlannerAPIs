@@ -15,7 +15,7 @@ def run_full_pipeline():
 
     # Step 1: Acquire Raw Data (Daily prices from Yahoo Finance)
     # This downloads CSVs to data/raw_daily/
-    data_acquisition.acquire_all_raw_data()
+    data_acquisition.acquire_all_raw_data() ## Tested
 
     # Step 2: Process Raw Data into Monthly GBP Returns
     # This converts daily data to monthly and performs USD->GBP conversion.

@@ -139,7 +139,8 @@ def convert_daily_to_monthly_returns(ticker_symbol: str, raw_data_dir: str, mont
 
     print(f"Converting daily data to monthly returns for {ticker_symbol}...")
     try:
-        daily_data = pd.read_csv(daily_file_name, index_col='Date', parse_dates=True)
+        #daily_data = pd.read_csv(daily_file_name, index_col='Date', parse_dates=True)
+        daily_data = pd.read_csv(daily_file_name, sep=',', header=None, names=['Date', 'Adj Close', 'High', 'Low','Open', 'Volume'], skiprows= 3, parse_dates=['Date',], index_col='Date')
         # Use 'Adj Close' if available, otherwise 'Close'
         if 'Adj Close' in daily_data.columns:
             prices_to_use = daily_data['Adj Close']

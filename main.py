@@ -33,17 +33,16 @@ def run_full_pipeline():
     consolidated_gbp_returns_for_sim = data_processing.consolidate_gbp_returns(
         all_asset_names_for_sim, config.GBP_MONTHLY_RETURNS_DIR
     )
-    if consolidated_gbp_returns_for_sim.empty:
-        print("Skipping Monte Carlo simulation: No consolidated GBP returns data.")
-    else:
-        # Run simulation and save .npy files to data/outputs/simulated_paths/
-        simulation.run_historical_bootstrapping(consolidated_gbp_returns_for_sim)
+    # if consolidated_gbp_returns_for_sim.empty:
+    #     print("Skipping Monte Carlo simulation: No consolidated GBP returns data.")
+    # else:
+    #     # Run simulation and save .npy files to data/outputs/simulated_paths/
+    #     simulation.run_historical_bootstrapping(consolidated_gbp_returns_for_sim)
 
-    # # Step 4: Perform Portfolio Analysis (MVO & Efficient Frontier)
-    # # This uses the same consolidated GBP returns data.
-    # # `run_portfolio_analysis` handles its own data consolidation internally, but we could pass it.
-    # portfolios_df, efficient_frontier_df = portfolio_analysis.run_portfolio_analysis()
-    #
+    # Step 4: Perform Portfolio Analysis (MVO & Efficient Frontier)
+    # This uses the same consolidated GBP returns data.
+    # `run_portfolio_analysis` handles its own data consolidation internally, but we could pass it.
+    portfolios_df, efficient_frontier_df = portfolio_analysis.run_portfolio_analysis()
     # # Step 5: Define Risk Profiles and Model Portfolios
     # if efficient_frontier_df is not None and not efficient_frontier_df.empty:
     #     # `define_and_select_model_portfolios` loads simulated paths internally

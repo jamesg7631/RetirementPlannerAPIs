@@ -120,6 +120,5 @@ def run_portfolio_analysis():
 
     # 3. Plot Efficient Frontier
     plot_efficient_frontier(portfolios_df, efficient_frontier_df)
-
     print("--- Portfolio Analysis Complete ---")
     return portfolios_df, efficient_frontier_df # Return these for use in risk profiling

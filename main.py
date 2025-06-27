@@ -30,9 +30,9 @@ def run_full_pipeline():
         'Moneymarket', 'AGG', 'LQD', 'HYG', 'IWDA.L', 'EEM', 'VNQI',
         'DBC', 'GLD', 'IGF', 'IUKP.L'
     ]
-    consolidated_gbp_returns_for_sim = data_processing.consolidate_gbp_returns(
-        all_asset_names_for_sim, config.GBP_MONTHLY_RETURNS_DIR
-    )
+    # consolidated_gbp_returns_for_sim = data_processing.consolidate_gbp_returns(
+    #     all_asset_names_for_sim, config.GBP_MONTHLY_RETURNS_DIR
+    # )
     # if consolidated_gbp_returns_for_sim.empty:
     #     print("Skipping Monte Carlo simulation: No consolidated GBP returns data.")
     # else:
@@ -42,15 +42,14 @@ def run_full_pipeline():
     # Step 4: Perform Portfolio Analysis (MVO & Efficient Frontier)
     # This uses the same consolidated GBP returns data.
     # `run_portfolio_analysis` handles its own data consolidation internally, but we could pass it.
-    portfolios_df, efficient_frontier_df = portfolio_analysis.run_portfolio_analysis()
-    # # Step 5: Define Risk Profiles and Model Portfolios
-    # if efficient_frontier_df is not None and not efficient_frontier_df.empty:
-    #     # `define_and_select_model_portfolios` loads simulated paths internally
-    #     risk_profiling.define_and_select_model_portfolios(efficient_frontier_df)
+    all_term_analysis_results = portfolio_analysis.run_portfolio_analysis_by_term()
+    print()
+    #Step 5: Define Risk Profiles and Model Portfolios
+    # if all_term_analysis_results:
+    #     risk_profiling.define_and_select_model_portfolios_by_term(all_term_analysis_results)
     # else:
-    #     print("Skipping risk profiling: No Efficient Frontier data available.")
-    #
-    # print("\n--- Full Retirement Planner Data Pipeline Complete ---")
+    #     print("Skipping risk profiling: No portfolio analysis results available.")
+
 
 if __name__ == "__main__":
     run_full_pipeline()

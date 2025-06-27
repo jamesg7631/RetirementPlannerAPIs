@@ -14,6 +14,17 @@ def calculate_max_drawdown(value_series: pd.Series) -> float:
     drawdown = (value_series / peak_value) - 1.0
     return drawdown.min()
 
+def get_target_volatilities_for_risk_level_by_term(risk_band_definitions_by_term: dict):
+    target_volatilities = {}
+
+    for term, band_entry in risk_band_definitions_by_term.items():
+        target_volatilities[term] = {}
+        for risk_level, volatilities in band_entry:
+            min_vol = volatilities["min_vol"]
+            max_vol = volatilities["max_vol"]
+            mid_band_vol = (max_vol - min_vol) / 2
+            target_volatilities[risk_level] = mid_band_vol
+
 def define_and_select_model_portfolios_by_term(all_term_results: dict):
     """
     Defines risk bands and identifies model portfolios for each time horizon.
@@ -51,7 +62,7 @@ def define_and_select_model_portfolios_by_term(all_term_results: dict):
 
         # Get term-specific risk band definitions and target volatilities
         term_risk_bands = config.RISK_BAND_DEFINITIONS_BY_TERM.get(term_name)
-        term_target_vols = config.TARGET_VOLATILITIES_FOR_RISK_LEVELS_BY_TERM.get(term_name)
+        term_target_vols = get_target_volatilities_for_risk_level_by_term(term_name)
 
         if not term_risk_bands or not term_target_vols:
             print(f"Error: Risk band definitions or target volatilities not found for term '{term_name}'. Skipping.")

@@ -76,7 +76,7 @@ def generate_efficient_frontier(combined_returns_df: pd.DataFrame):
 
     return portfolios_df, efficient_frontier
 
-def plot_efficient_frontier(portfolios_df: pd.DataFrame, efficient_frontier_df: pd.DataFrame):
+def plot_efficient_frontier(portfolios_df: pd.DataFrame, efficient_frontier_df: pd.DataFrame, term_name:str):
     """
     Plots all random portfolios and highlights the Efficient Frontier.
     """
@@ -87,38 +87,72 @@ def plot_efficient_frontier(portfolios_df: pd.DataFrame, efficient_frontier_df: 
     plt.colorbar(label='Sharpe Ratio (Annualized)')
     plt.scatter(efficient_frontier_df['Volatility'], efficient_frontier_df['Return'],
                 color='red', marker='o', s=50, label='Efficient Frontier')
-    plt.title('Portfolio Optimization - Efficient Frontier (Annualized)')
+    title = "Portfolio Optimization - Efficient Frontier (Annualized) for " + term_name + " Term"
+    plt.title(title)
     plt.xlabel('Annualized Volatility (Standard Deviation)')
     plt.ylabel('Annualized Return')
     plt.grid(True)
     plt.legend()
     plt.show()
 
-def run_portfolio_analysis():
+def run_portfolio_analysis_by_term():
     """
-    Orchestrates the portfolio analysis steps: MVO, Efficient Frontier generation and plotting.
+    Orchestrates the portfolio analysis steps for each defined time horizon.
+    Generates and plots a separate Efficient Frontier for each term.
+    Returns a dictionary of (portfolios_df, efficient_frontier_df) for each term.
     """
-    print("\n--- Starting Portfolio Analysis ---")
+    print("\n--- Starting Portfolio Analysis by Term ---")
 
-    # 1. Consolidate GBP monthly returns data
-    # List all final GBP monthly return CSV filenames (including converted ones)
-    final_gbp_asset_files = [f"{t}_monthly_returns_GBP.csv" for t in config.ASSET_TICKER_LIST_DAILY if t != config.GBP_ASSET_ORIGINAL_FILE.replace('_monthly_returns.csv', '')]
+    all_term_results = {} # To store (portfolios_df, efficient_frontier_df) for each term
+
+    # 1. Consolidate ALL GBP monthly returns data (full history)
+    # This consolidated_full_history_returns will be filtered for each term's MVO.
+    final_gbp_asset_files = [f"{t}_monthly_returns_GBP.csv" for t in config.USD_ASSETS_TO_CONVERT]
     final_gbp_asset_files.append(config.MONEYMARKET_GBP_RETURNS_FILE)
     final_gbp_asset_files.append(config.GBP_ASSET_ORIGINAL_FILE) # IUKP.L
 
-    combined_returns = consolidate_gbp_returns(
+    combined_full_history_returns = consolidate_gbp_returns(
         [t.replace('_monthly_returns_GBP.csv', '').replace('_monthly_returns.csv', '') for t in final_gbp_asset_files],
         config.GBP_MONTHLY_RETURNS_DIR
     )
 
-    if combined_returns.empty:
+    if combined_full_history_returns.empty:
         print("Error: Combined GBP returns data is empty for portfolio analysis. Exiting.")
-        return None, None # Return None if no data
+        return {}
 
-    # 2. Generate Efficient Frontier
-    portfolios_df, efficient_frontier_df = generate_efficient_frontier(combined_returns)
+    # 2. Loop through each defined time horizon
+    for term_name, lookback_years in config.TIME_HORIZON_LOOKBACK_YEARS.items():
+        print(f"\n===== Running MVO for {term_name} term (Lookback: {lookback_years} years) =====")
 
-    # 3. Plot Efficient Frontier
-    plot_efficient_frontier(portfolios_df, efficient_frontier_df)
-    print("--- Portfolio Analysis Complete ---")
-    return portfolios_df, efficient_frontier_df # Return these for use in risk profiling
+        # Filter data for the specific lookback period
+        if lookback_years is None: # Use full history for the longest term
+            term_combined_returns = combined_full_history_returns.copy()
+            print(f"  Using full history ({len(term_combined_returns)//12} years) for {term_name} term.")
+        else:
+            lookback_months = lookback_years * config.NUM_MONTHS_IN_YEAR
+            if len(combined_full_history_returns) < lookback_months:
+                print(f"  Warning: Not enough historical data ({len(combined_full_history_returns)} months) for {term_name} lookback ({lookback_months} months). Using all available data.")
+                term_combined_returns = combined_full_history_returns.copy()
+            else:
+                # Select the most recent `lookback_months`
+                term_combined_returns = combined_full_history_returns.tail(lookback_months).copy()
+            print(f"  Using {len(term_combined_returns)//12} years of most recent data for {term_name} term.")
+
+        if term_combined_returns.empty:
+            print(f"  Skipping {term_name}: Filtered data is empty.")
+            continue
+
+        # Generate Efficient Frontier for this term
+        portfolios_df_term, efficient_frontier_df_term = generate_efficient_frontier(term_combined_returns)
+
+        # Plot Efficient Frontier for this term (optional, but highly recommended for calibration)
+        print(f"\n--- Plot for {term_name} term ---")
+        plot_efficient_frontier(portfolios_df_term, efficient_frontier_df_term, term_name)
+
+        all_term_results[term_name] = {
+            'portfolios_df': portfolios_df_term,
+            'efficient_frontier_df': efficient_frontier_df_term
+        }
+
+    print("\n--- Portfolio Analysis by Term Complete ---")
+    return all_term_results

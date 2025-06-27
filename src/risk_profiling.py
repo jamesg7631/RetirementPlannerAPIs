@@ -14,118 +14,145 @@ def calculate_max_drawdown(value_series: pd.Series) -> float:
     drawdown = (value_series / peak_value) - 1.0
     return drawdown.min()
 
-def define_and_select_model_portfolios(efficient_frontier_df: pd.DataFrame):
+def get_target_volatilities_for_risk_level_by_term(risk_term_dict: dict):
+    target_volatilities = {}
+    for risk_level, volatilities in risk_term_dict.items():
+        min_vol = volatilities["vol_min"]
+        max_vol = volatilities["vol_max"]
+        mid_band_vol = round((max_vol + min_vol) / 2,4)
+        target_volatilities[risk_level] = mid_band_vol
+
+    return target_volatilities
+
+def define_and_select_model_portfolios_by_term(all_term_results: dict):
     """
-    Defines risk bands, identifies model portfolios from the efficient frontier,
-    and calculates their simulated maximum drawdowns.
+    Defines risk bands and identifies model portfolios for each time horizon.
+    Calculates their simulated maximum drawdowns.
     """
-    if efficient_frontier_df.empty:
-        print("Error: Efficient Frontier DataFrame is empty. Cannot define model portfolios.")
-        return pd.DataFrame()
+    if not all_term_results:
+        print("Error: No portfolio analysis results provided. Cannot define model portfolios.")
+        return {}
 
-    # Asset names from the efficient frontier columns (excluding metrics)
-    asset_names = [col for col in efficient_frontier_df.columns if col not in ['Volatility', 'Return', 'Sharpe_Ratio']]
+    all_term_model_portfolios = {} # To store the final model portfolio DataFrames by term
 
-    # Load simulated paths (needed for drawdown calculation)
-    loaded_sim_paths = load_simulated_paths(asset_names, config.SIMULATED_PATHS_DIR)
-    if not loaded_sim_paths:
-        print("Error: Simulated paths not loaded. Cannot calculate max drawdowns for model portfolios.")
-        return pd.DataFrame()
+    for term_name, term_data in all_term_results.items():
+        print(f"\n===== Defining Model Portfolios for {term_name} term =====")
+        efficient_frontier_df = term_data['efficient_frontier_df']
 
-    num_simulations = loaded_sim_paths[asset_names[0]].shape[0]
-    planning_horizon_months = loaded_sim_paths[asset_names[0]].shape[1]
+        if efficient_frontier_df.empty:
+            print(f"Skipping {term_name}: Efficient Frontier DataFrame is empty.")
+            continue
 
-    final_model_portfolios = {}
+        # Asset names from the efficient frontier columns (excluding metrics)
+        asset_names = [col for col in efficient_frontier_df.columns if col not in ['Volatility', 'Return', 'Sharpe_Ratio']]
 
-    print("\n--- Identifying Model Portfolios & Calculating Drawdowns ---")
+        # Load simulated paths (needed for drawdown calculation)
+        # Assuming your simulated_paths_folder contains paths generated from the *full* history,
+        # as usually, simulations are based on the longest available data.
+        loaded_sim_paths = load_simulated_paths(asset_names, config.SIMULATED_PATHS_DIR)
+        if not loaded_sim_paths:
+            print(f"Error: Simulated paths not loaded for {term_name}. Cannot calculate max drawdowns for this term.")
+            continue # Skip to next term if sim data isn't there
 
-    # Iterate through each desired risk level based on target volatilities
-    for risk_level, target_vol in config.TARGET_VOLATILITIES_FOR_RISK_LEVELS.items():
-        # Find the portfolio on the efficient frontier closest to the target volatility
-        idx = (efficient_frontier_df['Volatility'] - target_vol).abs().idxmin()
-        selected_portfolio_mvo = efficient_frontier_df.loc[idx].copy()
+        num_simulations = loaded_sim_paths[asset_names[0]].shape[0]
+        planning_horizon_months = loaded_sim_paths[asset_names[0]].shape[1]
 
-        print(f"Processing Risk {risk_level} (Target Vol: {target_vol:.2%}):")
-        print(f"  Selected MVO Portfolio (Vol: {selected_portfolio_mvo['Volatility']:.2%}, Return: {selected_portfolio_mvo['Return']:.2%})...")
+        final_model_portfolios_for_term = {}
 
-        # --- Calculate Max Drawdown for this selected portfolio using simulated_asset_paths ---
-        portfolio_weights = selected_portfolio_mvo[asset_names].values
+        # Get term-specific risk band definitions and target volatilities
+        term_risk_bands = config.RISK_BAND_DEFINITIONS_BY_TERM.get(term_name)
+        term_target_vols = get_target_volatilities_for_risk_level_by_term(term_risk_bands)
 
-        max_drawdowns_for_this_portfolio_sims = []
+        if not term_risk_bands or not term_target_vols:
+            print(f"Error: Risk band definitions or target volatilities not found for term '{term_name}'. Skipping.")
+            continue
 
-        # Iterate through each simulation path
-        for sim_idx in range(num_simulations):
-            initial_value = 1.0
-            portfolio_values = [initial_value]
 
-            # Get and compound monthly returns for this specific simulation run
-            for month_idx in range(planning_horizon_months):
-                monthly_returns_all_assets = np.array([
-                    loaded_sim_paths[asset_name][sim_idx, month_idx]
-                    for asset_name in asset_names
-                ])
+        # Iterate through each desired risk level based on target volatilities
+        for risk_level in sorted(term_target_vols.keys()):
+            target_vol = term_target_vols[risk_level]
 
-                portfolio_monthly_return = np.sum(monthly_returns_all_assets * portfolio_weights)
-                portfolio_values.append(portfolio_values[-1] * (1 + portfolio_monthly_return))
+            # Find the portfolio on the efficient frontier closest to the target volatility
+            idx = (efficient_frontier_df['Volatility'] - target_vol).abs().idxmin()
+            selected_portfolio_mvo = efficient_frontier_df.loc[idx].copy()
 
-            portfolio_value_series = pd.Series(portfolio_values)
-            max_drawdowns_for_this_portfolio_sims.append(calculate_max_drawdown(portfolio_value_series))
+            print(f"Processing Risk {risk_level} (Target Vol: {target_vol:.2%}):")
+            print(f"  Selected MVO Portfolio (Vol: {selected_portfolio_mvo['Volatility']:.2%}, Return: {selected_portfolio_mvo['Return']:.2%})...")
 
-        # Get the 1st percentile (worst 1%) of max drawdowns from all simulations for this portfolio
-        simulated_1st_percentile_max_drawdown = np.percentile(max_drawdowns_for_this_portfolio_sims, 1)
+            # --- Calculate Max Drawdown for this selected portfolio using simulated_asset_paths ---
+            portfolio_weights = selected_portfolio_mvo[asset_names].values
 
-        # --- Assign Final Risk Level based on Combined Criteria ("Highest Risk Wins") ---
+            max_drawdowns_for_this_portfolio_sims = []
 
-        # Determine risk level based on Volatility (using the actual portfolio volatility)
-        vol_risk_level = 0
-        actual_volatility = selected_portfolio_mvo['Volatility']
-        for r_lvl, defs in config.RISK_BAND_DEFINITIONS.items():
-            if actual_volatility >= defs['vol_min'] and actual_volatility < defs['vol_max']:
-                vol_risk_level = r_lvl
-                break
-        if vol_risk_level == 0 and actual_volatility >= config.RISK_BAND_DEFINITIONS[10]['vol_min']: # For highest band
-            vol_risk_level = 10
-        if vol_risk_level == 0: vol_risk_level = 1 # Default to Risk 1 if lower than all defined bands
+            for sim_idx in range(num_simulations):
+                initial_value = 1.0
+                portfolio_values = [initial_value]
 
-        # Determine risk level based on Max Drawdown (using the simulated 1st percentile drawdown)
-        dd_risk_level = 0
-        actual_max_drawdown = simulated_1st_percentile_max_drawdown
-        for r_lvl in sorted(config.RISK_BAND_DEFINITIONS.keys(), reverse=True): # Iterate in reverse for highest risk
-            if actual_max_drawdown <= config.RISK_BAND_DEFINITIONS[r_lvl]['dd_max']:
-                dd_risk_level = r_lvl
-                break
-        if dd_risk_level == 0: dd_risk_level = 1 # Default to Risk 1 if less risky than all defined bands
+                for month_idx in range(planning_horizon_months):
+                    monthly_returns_all_assets = np.array([
+                        loaded_sim_paths[asset_name][sim_idx, month_idx]
+                        for asset_name in asset_names
+                    ])
 
-        # The final assigned risk level is the maximum of the two derived levels
-        final_assigned_risk_level = max(vol_risk_level, dd_risk_level)
+                    portfolio_monthly_return = np.sum(monthly_returns_all_assets * portfolio_weights)
+                    portfolio_values.append(portfolio_values[-1] * (1 + portfolio_monthly_return))
 
-        # Store the results for this model portfolio
-        portfolio_data_dict = selected_portfolio_mvo.to_dict()
-        portfolio_data_dict['Simulated_1st_Percentile_Max_Drawdown'] = simulated_1st_percentile_max_drawdown
-        portfolio_data_dict['Vol_Risk_Level_Assigned'] = vol_risk_level
-        portfolio_data_dict['DD_Risk_Level_Assigned'] = dd_risk_level
-        portfolio_data_dict['Final_Assigned_Risk_Level'] = final_assigned_risk_level
+                portfolio_value_series = pd.Series(portfolio_values)
+                max_drawdowns_for_this_portfolio_sims.append(calculate_max_drawdown(portfolio_value_series))
 
-        final_model_portfolios[risk_level] = portfolio_data_dict
+            simulated_1st_percentile_max_drawdown = np.percentile(max_drawdowns_for_this_portfolio_sims, 1)
 
-        print(f"  Calculated 1st Percentile Max Drawdown: {simulated_1st_percentile_max_drawdown:.2%}")
-        print(f"  Assigned Risk Level (Volatility): {vol_risk_level}")
-        print(f"  Assigned Risk Level (Drawdown): {dd_risk_level}")
-        print(f"  Final Assigned Risk Level: {final_assigned_risk_level}")
-        print("=" * 50)
+            # --- Assign Final Risk Level based on Combined Criteria ("Highest Risk Wins") ---
 
-    # Convert the final_model_portfolios dictionary to a DataFrame for saving/viewing
-    model_portfolios_summary_df = pd.DataFrame(final_model_portfolios).T
-    model_portfolios_summary_df.index.name = 'Target_Risk_Level'
+            vol_risk_level = 0
+            actual_volatility = selected_portfolio_mvo['Volatility']
+            for r_lvl, defs in term_risk_bands.items():
+                if actual_volatility >= defs['vol_min'] and actual_volatility < defs['vol_max']:
+                    vol_risk_level = r_lvl
+                    break
+            if vol_risk_level == 0 and actual_volatility >= term_risk_bands[10]['vol_min']:
+                vol_risk_level = 10
+            if vol_risk_level == 0: vol_risk_level = 1
 
-    print("\n--- Summary of Final Model Portfolios with Assigned Risk Levels ---")
-    print(model_portfolios_summary_df[[
-        'Volatility', 'Return', 'Simulated_1st_Percentile_Max_Drawdown',
-        'Vol_Risk_Level_Assigned', 'DD_Risk_Level_Assigned', 'Final_Assigned_Risk_Level'
-    ]].round(4))
+            dd_risk_level = 0
+            actual_max_drawdown = simulated_1st_percentile_max_drawdown
+            for r_lvl in sorted(term_risk_bands.keys(), reverse=True):
+                if actual_max_drawdown <= term_risk_bands[r_lvl]['dd_max']:
+                    dd_risk_level = r_lvl
+                    break
+            if dd_risk_level == 0: dd_risk_level = 1
 
-    # Save the comprehensive model portfolios data
-    model_portfolios_summary_df.to_csv(os.path.join(config.OUTPUT_DATA_DIR, 'final_model_portfolios_with_risk_levels.csv'))
-    print(f"\nFinal model portfolios data saved to '{os.path.join(config.OUTPUT_DATA_DIR, 'final_model_portfolios_with_risk_levels.csv')}'.")
+            final_assigned_risk_level = max(vol_risk_level, dd_risk_level)
 
-    return model_portfolios_summary_df
+            portfolio_data_dict = selected_portfolio_mvo.to_dict()
+            portfolio_data_dict['Simulated_1st_Percentile_Max_Drawdown'] = simulated_1st_percentile_max_drawdown
+            portfolio_data_dict['Vol_Risk_Level_Assigned'] = vol_risk_level
+            portfolio_data_dict['DD_Risk_Level_Assigned'] = dd_risk_level
+            portfolio_data_dict['Final_Assigned_Risk_Level'] = final_assigned_risk_level
+
+            final_model_portfolios_for_term[risk_level] = portfolio_data_dict
+
+            print(f"  Calculated 1st Percentile Max Drawdown: {simulated_1st_percentile_max_drawdown:.2%}")
+            print(f"  Assigned Risk Level (Volatility): {vol_risk_level}")
+            print(f"  Assigned Risk Level (Drawdown): {dd_risk_level}")
+            print(f"  Final Assigned Risk Level: {final_assigned_risk_level}")
+            print("=" * 50)
+
+        model_portfolios_summary_df = pd.DataFrame(final_model_portfolios_for_term).T
+        model_portfolios_summary_df.index.name = 'Target_Risk_Level'
+
+        print(f"\n--- Summary of Final Model Portfolios for {term_name} ---")
+        print(model_portfolios_summary_df[[
+            'Volatility', 'Return', 'Simulated_1st_Percentile_Max_Drawdown',
+            'Vol_Risk_Level_Assigned', 'DD_Risk_Level_Assigned', 'Final_Assigned_Risk_Level'
+        ]].round(4))
+
+        # Save to a term-specific file
+        output_filepath = os.path.join(config.OUTPUT_DATA_DIR, f'model_portfolios_{term_name}.csv')
+        model_portfolios_summary_df.to_csv(output_filepath)
+        print(f"Model portfolios for {term_name} saved to '{output_filepath}'.")
+
+        all_term_model_portfolios[term_name] = model_portfolios_summary_df # Store for overall return
+
+    print("\n--- All Model Portfolios by Term Defined ---")
+    return all_term_model_portfolios

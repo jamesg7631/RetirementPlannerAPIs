@@ -37,7 +37,7 @@ USD_ASSETS_TO_CONVERT = [
 GBP_ASSET_ORIGINAL_FILE = 'IUKP.L_monthly_returns.csv'
 
 # Monte Carlo Simulation Parameters
-NUM_SIMULATIONS = 10000
+NUM_SIMULATIONS = 1000
 PLANNING_HORIZON_YEARS = 75
 PLANNING_HORIZON_MONTHS = PLANNING_HORIZON_YEARS * 12
 
@@ -45,32 +45,88 @@ PLANNING_HORIZON_MONTHS = PLANNING_HORIZON_YEARS * 12
 NUM_RANDOM_PORTFOLIOS_MVO = 50000 # Number of random portfolios for efficient frontier approximation
 NUM_MONTHS_IN_YEAR = 12
 
-# Risk band definitions ### Adjust these after running MVO and plotting
-RISK_BAND_DEFINITIONS = {
-    # Risk Level: {'vol_min': X, 'vol_max': Y, 'dd_max': Z}
-    # dd_max is the *maximum allowed negative drawdown* (e.g., -0.075 means max 7.5% loss)
-    1: {'vol_min': 0.090, 'vol_max': 0.100, 'dd_max': -0.075},
-    2: {'vol_min': 0.100, 'vol_max': 0.110, 'dd_max': -0.100},
-    3: {'vol_min': 0.110, 'vol_max': 0.120, 'dd_max': -0.125},
-    4: {'vol_min': 0.120, 'vol_max': 0.130, 'dd_max': -0.150},
-    5: {'vol_min': 0.130, 'vol_max': 0.140, 'dd_max': -0.175},
-    6: {'vol_min': 0.140, 'vol_max': 0.150, 'dd_max': -0.200},
-    7: {'vol_min': 0.150, 'vol_max': 0.160, 'dd_max': -0.250},
-    8: {'vol_min': 0.160, 'vol_max': 0.170, 'dd_max': -0.300},
-    9: {'vol_min': 0.170, 'vol_max': 0.180, 'dd_max': -0.350},
-    10: {'vol_min': 0.180, 'vol_max': 1.0, 'dd_max': -1.0} # Upper bound for risk 10
+#  --- Time Horizon Parameters
+# Uses the most recent historical lookback periods for MVO for each term
+# The actual number of historical months is len(combined_monthly_returns_gbp) = 175 months or ~ 14.5 years. This needs improved!
+# This will need to be improved for the 21+ year term
+
+TIME_HORIZON_LOOKBACK_YEARS = {
+    "5_year": 5,
+    "10_year": 10,
+    "15_year": 15,
+    "21_plus_year": None ### Assuming if I can obtain history beyond 21+year would I use None or limit the number of years I go back, for instance to 21?
 }
 
-# Target volatilities for selecting portfolios from the efficient frontier
-TARGET_VOLATILITIES_FOR_RISK_LEVELS = {
-    1: 0.095,  # ~9.5%
-    2: 0.105,  # ~10.5%
-    3: 0.115,  # ~11.5%
-    4: 0.125,  # ~12.5%
-    5: 0.135,  # ~13.5%
-    6: 0.145,  # ~14.5%
-    7: 0.155,  # ~15.5%
-    8: 0.165,  # ~16.5%
-    9: 0.175,  # ~17.5%
-    10: 0.185   # ~18.5%
+# --- Risk Band Definitions
+# These need to be frequently recalibrated. Once per quarter?
+RISK_BAND_DEFINITIONS_BY_TERM = {
+    "5_year": {
+        1: {'vol_min': 0.1095, 'vol_max': 0.1177, 'dd_max': -0.650},
+        2: {'vol_min': 0.1177, 'vol_max': 0.1259, 'dd_max': -0.680},
+        3: {'vol_min': 0.1259, 'vol_max': 0.1341, 'dd_max': -0.710},
+        4: {'vol_min': 0.1341, 'vol_max': 0.1423, 'dd_max': -0.740},
+        5: {'vol_min': 0.1423, 'vol_max': 0.1505, 'dd_max': -0.770},
+        6: {'vol_min': 0.1505, 'vol_max': 0.1587, 'dd_max': -0.800},
+        7: {'vol_min': 0.1587, 'vol_max': 0.1669, 'dd_max': -0.830},
+        8: {'vol_min': 0.1669, 'vol_max': 0.1751, 'dd_max': -0.860},
+        9: {'vol_min': 0.1751, 'vol_max': 0.1833, 'dd_max': -0.890},
+        10: {'vol_min': 0.1833, 'vol_max': 0.1937, 'dd_max': -1.0}
+    },
+    "10_year": {
+        1: {'vol_min': 0.0991, 'vol_max': 0.1074, 'dd_max': -0.650},
+        2: {'vol_min': 0.1074, 'vol_max': 0.1157, 'dd_max': -0.680},
+        3: {'vol_min': 0.1157, 'vol_max': 0.1240, 'dd_max': -0.710},
+        4: {'vol_min': 0.1240, 'vol_max': 0.1323, 'dd_max': -0.740},
+        5: {'vol_min': 0.1323, 'vol_max': 0.1406, 'dd_max': -0.770},
+        6: {'vol_min': 0.1406, 'vol_max': 0.1489, 'dd_max': -0.800},
+        7: {'vol_min': 0.1489, 'vol_max': 0.1572, 'dd_max': -0.830},
+        8: {'vol_min': 0.1572, 'vol_max': 0.1655, 'dd_max': -0.860},
+        9: {'vol_min': 0.1655, 'vol_max': 0.1738, 'dd_max': -0.890},
+        10: {'vol_min': 0.1738, 'vol_max': 0.1843, 'dd_max': -1.0}
+    },
+    "15_year": {
+        1: {'vol_min': 0.0952, 'vol_max': 0.1039, 'dd_max': -0.650},
+        2: {'vol_min': 0.1039, 'vol_max': 0.1126, 'dd_max': -0.690},
+        3: {'vol_min': 0.1126, 'vol_max': 0.1213, 'dd_max': -0.710},
+        4: {'vol_min': 0.1213, 'vol_max': 0.1300, 'dd_max': -0.740},
+        5: {'vol_min': 0.1300, 'vol_max': 0.1387, 'dd_max': -0.770},
+        6: {'vol_min': 0.1387, 'vol_max': 0.1474, 'dd_max': -0.800},
+        7: {'vol_min': 0.1474, 'vol_max': 0.1561, 'dd_max': -0.830},
+        8: {'vol_min': 0.1561, 'vol_max': 0.1648, 'dd_max': -0.860},
+        9: {'vol_min': 0.1648, 'vol_max': 0.1735, 'dd_max': -0.900},
+        10: {'vol_min': 0.1735, 'vol_max': 0.1845, 'dd_max': -1.0}
+    },
+    "21_plus_year": {
+        1: {'vol_min': 0.0830, 'vol_max': 0.0926, 'dd_max': -0.650},
+        2: {'vol_min': 0.0926, 'vol_max': 0.1022, 'dd_max': -0.680},
+        3: {'vol_min': 0.1022, 'vol_max': 0.1118, 'dd_max': -0.710},
+        4: {'vol_min': 0.1118, 'vol_max': 0.1214, 'dd_max': -0.740},
+        5: {'vol_min': 0.1214, 'vol_max': 0.1310, 'dd_max': -0.770},
+        6: {'vol_min': 0.1310, 'vol_max': 0.1406, 'dd_max': -0.800},
+        7: {'vol_min': 0.1406, 'vol_max': 0.1502, 'dd_max': -0.830},
+        8: {'vol_min': 0.1502, 'vol_max': 0.1598, 'dd_max': -0.860},
+        9: {'vol_min': 0.1598, 'vol_max': 0.1694, 'dd_max': -0.890},
+        10: {'vol_min': 0.1694, 'vol_max': 0.1808, 'dd_max': -1.0}
+    }
 }
+
+# No longer in use. Make sure code runs without and remove
+
+# TARGET_VOLATILITIES_FOR_RISK_LEVELS_BY_TERM = {
+#     "5_year": {
+#         1: 0.1136, 2: 0.1218, 3: 0.1300, 4: 0.1382, 5: 0.1464,
+#         6: 0.1546, 7: 0.1628, 8: 0.1710, 9: 0.1792, 10: 0.1885
+#     },
+#     "10_year": {
+#         1: 0.1032, 2: 0.1116, 3: 0.1198, 4: 0.1281, 5: 0.1365,
+#         6: 0.1448, 7: 0.1531, 8: 0.1614, 9: 0.1697, 10: 0.1790
+#     },
+#     "15_year": {
+#         1: 0.0996, 2: 0.1083, 3: 0.1170, 4: 0.1257, 5: 0.1344,
+#         6: 0.1430, 7: 0.1518, 8: 0.1604, 9: 0.1692, 10: 0.1790
+#     },
+#     "21_plus_year": {
+#         1: 0.0878, 2: 0.0974, 3: 0.1070, 4: 0.1166, 5: 0.1262,
+#         6: 0.1358, 7: 0.1454, 8: 0.1550, 9: 0.1646, 10: 0.1751
+#     }
+# }

@@ -11,6 +11,48 @@ class BOEInterestRate:
         self.date = date
         self.annual_rate = annual_rate
 
+class CPIIndexNumber:
+    def __init__(self, date, index_number):
+        self.date = date
+        self.index_number = index_number
+
+def read_cpi_history(filepath:str) -> list:
+    """
+    Reads raw CPI history data from a CSV.
+    Assumes CSV format: Header row is months with three let abbreviation for month and each column 0 has all the years
+    """
+    print(f"Reading CPI inflation data from {filepath}...")
+    cpi_index_numbers = []
+    try:
+        with open(filepath) as new_file:
+            next(new_file)
+            for line in new_file:
+                items = line.strip().split(",")
+                year = int(items[0])
+                for i in range(len(items) - 2):
+                    # Transform data
+                    days_in_month = calendar.monthrange(year,i + 1)
+                    date = datetime(year, i + 1, days_in_month)
+                    entry = CPIIndexNumber(date, float(items[i + 1]))
+                    cpi_index_numbers.append(entry)
+            cpi_index_numbers.sort(key=lambda x:x.date)
+            print(f"Loaded {len(cpi_index_numbers)} CPI index numbers.")
+            return cpi_index_numbers
+    except FileNotFoundError:
+        print(f"Error: CPI index raw data not found at {filepath}.")
+        return []
+    except Exception as e:
+        print(f"Error reading CPI raw data: {e}")
+        return []
+
+def calculate_monthly_inflation(cpi_history_data: list, starting_date: datetime, end_date:datetime) -> list:
+
+
+
+
+
+
+
 def read_boe_raw(filepath: str) -> list:
     """
     Reads raw BOE interest rate data from a CSV.

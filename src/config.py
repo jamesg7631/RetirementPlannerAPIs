@@ -29,6 +29,11 @@ FX_TICKER = 'GBPUSD=X'
 BOE_RAW_FILE = 'BOE_rates_original.csv'
 MONEYMARKET_GBP_RETURNS_FILE = 'Moneymarket_monthly_returns_GBP.csv'
 
+# Inflation Rate data file
+UK_CPI_RAW_FILE = 'UK_CPI_historical_data.csv'
+INFLATION_COLUMN_NAME = 'Inflation'
+UK_INFLATION_RATES_FILE = 'UK_CPI_rates.csv'
+
 # Assets that are USD-denominated and need conversion to GBP
 USD_ASSETS_TO_CONVERT = [
     'AGG', 'LQD', 'HYG', 'IWDA.L', 'EEM', 'VNQI', 'DBC', 'GLD', 'IGF' # Assuming IWDA.L is USD for conversion as per your check

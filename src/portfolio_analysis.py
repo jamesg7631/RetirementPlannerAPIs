@@ -116,6 +116,8 @@ def run_portfolio_analysis_by_term():
         config.GBP_MONTHLY_RETURNS_DIR
     )
 
+    combined_full_history_returns =  combined_full_history_returns.drop(columns=[config.INFLATION_COLUMN_NAME])
+
     if combined_full_history_returns.empty:
         print("Error: Combined GBP returns data is empty for portfolio analysis. Exiting.")
         return {}

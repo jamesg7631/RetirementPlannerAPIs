@@ -1,9 +1,12 @@
 import pandas as pd
 import numpy as np
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import calendar
+
+from numpy.f2py.auxfuncs import throw_error
+
 from src import config
 
 class BOEInterestRate:
@@ -11,10 +14,22 @@ class BOEInterestRate:
         self.date = date
         self.annual_rate = annual_rate
 
-class CPIIndexNumber:
+class InflationIndexNumber:
     def __init__(self, date, index_number):
         self.date = date
         self.index_number = index_number
+
+    def __str__(self):
+        return f"Date: {self.date} and Inflation Rate: {self.index_number}"
+
+class InflationRate:
+    def __init__(self, date:datetime, inflation_rate:float):
+        self.date = date
+        self.inflation_rate = inflation_rate
+
+    def __str__(self):
+        return f"Date: {self.date} and Inflation Rate: {self.inflation_rate}"
+
 
 def read_cpi_history(filepath:str) -> list:
     """
@@ -29,11 +44,14 @@ def read_cpi_history(filepath:str) -> list:
             for line in new_file:
                 items = line.strip().split(",")
                 year = int(items[0])
-                for i in range(len(items) - 2):
+                month_index = len(items) -2
+                for i in range(month_index, 0, -1):
+                    if items[i] == "":
+                        continue
                     # Transform data
-                    days_in_month = calendar.monthrange(year,i + 1)
-                    date = datetime(year, i + 1, days_in_month)
-                    entry = CPIIndexNumber(date, float(items[i + 1]))
+                    days_in_month = calendar.monthrange(year,i)[1]
+                    date = datetime(year, i, days_in_month)
+                    entry = InflationIndexNumber(date, float(items[i]))
                     cpi_index_numbers.append(entry)
             cpi_index_numbers.sort(key=lambda x:x.date)
             print(f"Loaded {len(cpi_index_numbers)} CPI index numbers.")
@@ -45,13 +63,57 @@ def read_cpi_history(filepath:str) -> list:
         print(f"Error reading CPI raw data: {e}")
         return []
 
-def calculate_monthly_inflation(cpi_history_data: list, starting_date: datetime, end_date:datetime) -> list:
+def calculate_monthly_inflation(cpi_history_data: list) -> list:
+    """
+    Calculate monthly CPI inflation
+    """
+    monthly_cpi_rate = []
+    for i in range(len(cpi_history_data) -1):
+        rate = (cpi_history_data[i + 1].index_number / cpi_history_data[i].index_number) -1
+        inflation_rate = InflationRate(cpi_history_data[i + 1].date, rate)
+        monthly_cpi_rate.append(inflation_rate)
 
+    return monthly_cpi_rate
 
+def write_monthly_inflation(monthly_inflation: list, starting_date: datetime, end_date) -> None:
+    filepath = os.path.join(config.BOE_DATA_DIR, config.UK_INFLATION_RATES_FILE)
+    with open(filepath, 'w') as new_file:
+        new_file.write("Date,Monthly_Return\n")
+        for entry in monthly_inflation:
+            date = entry.date
+            if (starting_date - date > timedelta(0)):
+                continue
+            elif (date - end_date > timedelta(0)):
+                break
+            date_string = date.strftime("%Y-%m-%d")
+            new_file.write(f"{date_string},{entry.inflation_rate}\n")
 
-
-
-
+def read_processed_monthly_inflation(filepath):
+    monthly_inflation = []
+    print(f"Reading processed monthly inflation data from {filepath}...")
+    try:
+        with open(filepath) as new_file:
+            next(new_file)
+            for line in new_file:
+                items = line.split(",")
+                if len(items) < 2:
+                    original_date = items[0]
+                    try:
+                        date_obj = datetime.strptime(original_date, "%Y-%m-%d")
+                    except ValueError:
+                        print(f"Error: Date format in file {filepath} is incorrect")
+                        date_obj = None
+                    inflation_rate = InflationRate(date_obj, float(items[1]))
+                    monthly_inflation.append(inflation_rate)
+            monthly_inflation.sort(key=lambda x: x.date)
+            print(f"Loaded {len(monthly_inflation)} monthly inflation entries")
+            return monthly_inflation
+    except FileNotFoundError:
+        print(f"Error: Inflation data file not found at {filepath}.")
+        return []
+    except Exception as e:
+        print(f"Error reading Inflation data: {e}")
+        return []
 
 def read_boe_raw(filepath: str) -> list:
     """
@@ -281,6 +343,16 @@ def consolidate_gbp_returns(asset_names: list, folder_path: str) -> pd.DataFrame
         except Exception as e:
             print(f"Error processing {file_to_load} for consolidation: {e}")
 
+    cpi_filepath = os.path.join(config.BOE_DATA_DIR, config.UK_INFLATION_RATES_FILE)
+    try:
+        df = pd.read_csv(cpi_filepath, index_col='Date', parse_dates=True)
+        if 'Monthly_Return' in df.columns:
+            all_returns[config.INFLATION_COLUMN_NAME] = df['Monthly_Return']
+        else:
+            print(f"Error: 'Monthly_Return' column not found in {cpi_filepath}. Skipping")
+    except Exception as e:
+        print(f"Error processing {cpi_filepath} for consolidation: {e}")
+
     combined_df = pd.DataFrame(all_returns)
     initial_rows = len(combined_df)
     combined_df.dropna(inplace=True) # Ensure all rows are complete for consistent analysis
@@ -307,7 +379,7 @@ def process_all_monthly_returns():
         convert_daily_to_monthly_returns(ticker, config.RAW_DATA_DIR, config.GBP_MONTHLY_RETURNS_DIR)
     convert_daily_to_monthly_returns(config.FX_TICKER, config.RAW_DATA_DIR, config.GBP_MONTHLY_RETURNS_DIR)
 
-    # 2. Convert BOE rates to Money Market monthly returns
+    # 2. Convert BOE rates to Money Market monthly returns and inflation data to the same format
     boe_raw_filepath = os.path.join(config.BOE_DATA_DIR, config.BOE_RAW_FILE)
     boe_rates = read_boe_raw(boe_raw_filepath)
     # Use dates that align with the downloaded data
@@ -325,8 +397,21 @@ def process_all_monthly_returns():
     else:
         print("Warning: No money market returns generated.")
 
+    inflation_raw_filepath = os.path.join(config.BOE_DATA_DIR, config.UK_CPI_RAW_FILE)
+    inflation_rates = read_cpi_history(inflation_raw_filepath)
+    monthly_inflation_rates = calculate_monthly_inflation(inflation_rates)
+
     # 3. Convert USD asset monthly returns to GBP
     for usd_ticker in config.USD_ASSETS_TO_CONVERT:
         convert_usd_to_gbp_returns(usd_ticker, config.FX_TICKER, config.GBP_MONTHLY_RETURNS_DIR)
+
+    # 4. Save monthly inflation rates
+    start_month = (start_date_obj.month % 12) + 1
+    start_year = start_date_obj.year + 1 if start_month == 1 else start_date_obj.year
+    days_in_start_month = calendar.monthrange(start_year, start_month)[1]
+
+    start_date = datetime(start_year, start_month, days_in_start_month)
+
+    write_monthly_inflation(monthly_inflation_rates, start_date, end_date_obj)
 
     print("--- Monthly Returns Processing Complete ---")

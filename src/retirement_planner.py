@@ -1,28 +1,45 @@
 import pandas as pd
 import numpy as np
 import os
+
 from src import config
 from src.simulation import load_simulated_paths
+import time
 # Note, I have moved the model portfolio from the outputs/filename to outputs/model_portfolios/filename
 
 # Could Maybe divide into smaller classes later
 # Could also perhaps use dob instead of current age
 class RetirementSimulatorModelPortfolios:
-    def __init__(self, current_age:int, retirement_age: int, initial_balance, life_expectancy, term_name:str, risk_level:int, output_data_dir:str, asset_names:list):
-        # self.term_name = term_name
-        # self.risk_level = risk_level
-        self.output_data_dir = output_data_dir
-        self.asset_names = asset_names
-        self.all_sim_names = self.asset_names.copy().append(config.INFLATION_COLUMN_NAME)
-        self.load_model_portfolio_weights(term_name, risk_level)
-        self.loaded_sim_paths = load_simulated_paths(self.all_sim_names, config.SIMULATED_PATHS_DIR) # Don't understand why I am getting a warning. Pay close attention when running in debug mode
-        # I might separate the below into separate class later
+    def __init__(self, current_age:int, retirement_age: int, initial_balance, life_expectancy, risk_level:int, output_data_dir:str, asset_names:list):
         self.current_age = current_age
         self.retirement_age = retirement_age
         self.initial_balance = initial_balance
         self.life_expectancy = life_expectancy
+        # self.term_name = term_name
+        # self.risk_level = risk_level
+        self.output_data_dir = output_data_dir
+        self.asset_names = asset_names
+        self.all_sim_names = self.asset_names.copy()
+        self.all_sim_names.append(config.INFLATION_COLUMN_NAME)
+        self.load_model_portfolio_weights(risk_level)
+        self.loaded_sim_paths = load_simulated_paths(self.all_sim_names, config.SIMULATED_PATHS_DIR) # Don't understand why I am getting a warning. Pay close attention when running in debug mode
+        print()
 
-    def load_model_portfolio_weights(self, term_name: str, risk_level:int) ->None:
+    def get_term_name(self):
+        term_name = ""
+        investment_horizon = self.life_expectancy - self.current_age
+        for term in reversed(config.TIME_HORIZON_LOOKBACK_YEARS):
+            year = config.TIME_HORIZON_LOOKBACK_YEARS[term]
+            if year is None:
+                term_name = term
+            elif investment_horizon < year:
+                term_name = term
+
+        return term_name
+
+
+    def load_model_portfolio_weights(self, risk_level:int) ->None:
+        term_name = self.get_term_name()
         filepath = os.path.join(self.output_data_dir, f"model_portfolios_{term_name}.csv")
         try:
             model_portfolios_df = pd.read_csv(filepath, index_col='Target_Risk_Level')
@@ -38,163 +55,72 @@ class RetirementSimulatorModelPortfolios:
             print(f"Error loading model portfolio for {term_name} at {filepath}.")
             self.model_portfolio_weights = pd.Series(0.0, index=self.asset_names)
 
-    def run_client_retirement_simulation(self, contribution_amount, initial_balance):
-        pre_retirement_months = (self.retirement_age - self.current_age) * config.PLANNING_HORIZON_MONTHS
-        post_retirement_months = (self.life_expectancy - self.retirement_age)
-        total_planning_months = pre_retirement_months + post_retirement_months
+    def run_client_retirement_simulation(self, contribution_amount, initial_balance, withdrawal_amount:float):
+        start_time = time.perf_counter()
 
-        for i in range(config.NUM_SIMULATIONS):
-            if (i + 1) % 100 == 0:
-                print(f"Running {config.NUM_SIMULATIONS} simulation over {total_planning_months}")
+        pre_retirement_months = (self.retirement_age - self.current_age) * 12
+        post_retirement_months = (self.life_expectancy - self.retirement_age) * 12
+        # total_planning_months = pre_retirement_months + post_retirement_months
+        all_portfolio_histories =[]
 
+        for current_sim_number in range(config.NUM_SIMULATIONS):
+            # if (current_sim_number + 1) % 100 == 0:
+            #     print(f"Running {config.NUM_SIMULATIONS} simulation over {total_planning_months}")
+            pf_history_current_sim = self.constant_nominal_contribution(contribution_amount, initial_balance, current_sim_number, pre_retirement_months)
+            pf_history_current_sim = self.constant_nominal_withdrawal(withdrawal_amount, pf_history_current_sim, current_sim_number, pre_retirement_months, post_retirement_months)
+            all_portfolio_histories.append(pf_history_current_sim)
 
-
-    # --- Contribution Strategies ---
-    def constant_nominal_contribution(self, contribution_amount, initial_balance, all_portfolio_histories: list):
-        for i in range(config.NUM_SIMULATIONS):
-            if (i + 1) % 100 == 0:
-                print(f"Running {config.NUM_SIMULATIONS} simulation over {total_planning_months}")
-                current_balance = initial_balance
-                portfolio_history_current_sim = [initial_balance]
-
-                for month_in_horizon in range(pre_retirement_months):
-                    sim_month_index = month_in_horizon
-                    if sim_month_index >= config.PLANNING_HORIZON_MONTHS:
-                        break
-                        ### Come back to this
-                    monthly_returns_all_assets = np.array([
-                        loaded_sim_paths[asset_name][i,sim_month_index]
-                        for asset_name in all_asset_names
-                    ])
-
-                    portfolio_monthly_return = np.sum(monthly_returns_all_assets * portfolio_weights.values)
-                    current_balance *= (1 + portfolio_monthly_return)
-                    portfolio_history_current_sim.append(current_balance)
-                all_portfolio_histories.append(portfolio_history_current_sim)
-
-        print(f"--- Simulated nominal contributions")
+        end_time = time.perf_counter()
+        duration = end_time - start_time
+        print(f"Execution time: {duration:.6f} seconds")
 
         return all_portfolio_histories
 
+    # --- Contribution Strategies ---
+    def constant_nominal_contribution(self, contribution_amount, initial_balance, simulation_number:int, pre_retirement_months: int):
+        current_balance = initial_balance
+        portfolio_history_current_sim = [initial_balance]
+
+        for month_in_horizon in range(pre_retirement_months):
+            sim_month_index = month_in_horizon
+            if sim_month_index >= config.PLANNING_HORIZON_MONTHS:
+                break
+                ### Come back to this
+            monthly_returns_all_assets = np.array([
+                self.loaded_sim_paths[asset_name][simulation_number,sim_month_index]
+                for asset_name in self.asset_names
+            ])
+
+            portfolio_monthly_return = np.sum(monthly_returns_all_assets * self.model_portfolio_weights.values)
+            current_balance = (current_balance *(1 + portfolio_monthly_return)) + contribution_amount
+            portfolio_history_current_sim.append(current_balance)
+
+        return portfolio_history_current_sim
+
     # --- Withdrawal Strategies
-    def constant_nominal_withdrawal(self, withdrawal_amount, all_portfolio_histories:list):
+    def constant_nominal_withdrawal(self, withdrawal_amount, portfolio_history_current_sim:list, simulation_number:int, pre_retirement_months, post_retirement_months):
+        current_balance = portfolio_history_current_sim[-1]
+        for month_in_horizon in range(post_retirement_months):
+            real_current_month = month_in_horizon + pre_retirement_months
+            if real_current_month >= config.PLANNING_HORIZON_MONTHS:
+                break
+            monthly_returns_all_assets = np.array([
+                self.loaded_sim_paths[asset_name][simulation_number, real_current_month]
+                for asset_name in self.asset_names
+            ])
+            portfolio_monthly_return = np.sum(monthly_returns_all_assets * self.model_portfolio_weights.values)
+            current_balance = (current_balance * (1 + portfolio_monthly_return)) - withdrawal_amount
+            portfolio_history_current_sim.append(current_balance)
 
+        return portfolio_history_current_sim
 
-
-
-
-
-
-
-
-
-
-
-# Quick Calculation. I forget to model inflation but I want to build the rest of the application to get a quick
-# prototype. Model inflation and adjust the below later
-# Also, the below uses the model portfolios risk 1-10 model portfolios. However, client could have other funds.
-# Could do historical bootstrapping using the yahoo finance API of the fund they are invested in.
-# Could potentially break the application though if they request a fund which has an unexpected data format.
-# Could result in incorrect calc as a currency conversion could be missed.
-# Alternatively, could map fund to our asset classes and use that as the below.
-def prepare_client_retirement_simulation()
-
-def run_client_retirement_simulation(
-        initial_balance:float,
-        current_age: int,
-        retirement_age:int,
-        annual_contribution:float,
-        annual_withdrawal_at_retirement: float,
-        life_expectancy: int, # Will replace with mortality simulations from lifetables later
-        selected_risk_level: int,
-        selected_term_name: str,
-):
-    # print("--- Starting Retirement Simulation for Client")
-    # print(f"Profile: Risk {selected_risk_level}, Term {selected_term_name}")
-    # print(f"Initial Balance: £{initial_balance:,.2f}")
-
-    all_sim_column_names = [
+if __name__ == "__main__":
+    all_asset_names = [
         t.replace('_monthly_returns_GBP.csv', '').replace('_monthly_returns.csv', '')
         for t in config.USD_ASSETS_TO_CONVERT + [config.MONEYMARKET_GBP_RETURNS_FILE, config.GBP_ASSET_ORIGINAL_FILE]
     ]
-    all_sim_column_names.append(config.INFLATION_COLUMN_NAME)
+    ret_planner = RetirementSimulatorModelPortfolios(25, 67,
+                                                     100000, 77, 1, config.OUTPUT_DATA_DIR, all_asset_names)
 
-    all_asset_classes = all_sim_column_names[:]
-    all_asset_classes.remove(config.INFLATION_COLUMN_NAME)
-    # Might break with last change I made
-    portfolio_weights = load_model_portfolio_weights(selected_term_name, selected_risk_level, config.OUTPUT_DATA_DIR,
-                                                    all_asset_classes)
-    if portfolio_weights.sum() == 0.0:
-        print("Error: Could not successfully load portfolio weights")
-        return [], []
-
-    print(f"Portfolio weight total {portfolio_weights.sum()}")
-
-    loaded_sim_paths = load_simulated_paths(all_sim_column_names, config.SIMULATED_PATHS_DIR)
-
-    # Planning horizon calcs
-    pre_retirement_months = (retirement_age - current_age) * config.NUM_MONTHS_IN_YEAR
-    post_retirement_months = (life_expectancy - retirement_age) * config.NUM_MONTHS_IN_YEAR
-    total_planning_months = pre_retirement_months + post_retirement_months
-
-    # final_balances = []
-    # all_portfolio_histories = []
-    #
-    # print(f"Running {config.NUM_SIMULATIONS} simulations over {total_planning_months} months...")
-
-    # for i in range(config.NUM_SIMULATIONS):
-    #     if (i + 1) % 100 == 0:
-    #         print(f"Simulation {i + 1}/{config.NUM_SIMULATIONS} complete")
-    #
-    #     current_balance = initial_balance
-    #     portfolio_history_current_sim = [initial_balance]
-    #
-    #     current_mon
-    #
-    #     # #
-    #     # current_annual_contribution_inflated = annual_contribution
-    #     # current_annual_withdrawal_inflated = annual_withdrawal_at_retirement
-    #
-    #     # Loop through the total planning horizon, month by month
-    #     for month_in_horizon  in range(total_planning_months):
-    #         sim_month_index = month_in_horizon
-    #         if sim_month_index >= config.PLANNING_HORIZON_MONTHS:
-    #             break
-    #         monthly_returns_all_assets = np.array([
-    #             loaded_sim_paths[asset_name][i,sim_month_index]
-    #             for asset_name in all_sim_column_names
-    #         ])
-    #
-    #         # Calculate portfolio's monthly return
-    #         portfolio_monthly_return = np.sum(monthly_returns_all_assets * portfolio_weights.values)
-    #         current_balance *= (1 + portfolio_monthly_return)
-    #
-    #         current_year_in_horizon = month_in_horizon // config.NUM_MONTHS_IN_YEAR
-    #
-    #         # Check if it's an annual adjustment point (start of a new year in the horizon)
-    #         if month_in_horizon % config.NUM_MONTHS_IN_YEAR == 0 and month_in_horizon > 0:
-    #             current_annual_contribution_inflated *= (1 + average_annual_inflation)
-    #             current_annual_withdrawal_inflated *= (1 + average_annual_inflation)
-    #
-    #         if month_in_horizon < pre_retirement_months:
-    #             current_balance += (current_annual_contribution_inflated / config.NUM_MONTHS_IN_YEAR)
-    #         else:
-    #             current_balance -= (current_annual_withdrawal_inflated / config.NUM_MONTHS_IN_YEAR)
-    #
-    #         if current_balance <= 0:
-    #             current_balance = 0
-    #             portfolio_history_current_sim.append(current_balance)
-    #             print(f"Run out of money in year {current_year_in_horizon}!")
-    #             break
-    #
-    #         portfolio_history_current_sim.append(current_balance)
-    #     final_balances.append(current_balance)
-    #     all_portfolio_histories.append(portfolio_history_current_sim)
-    #
-    # print("--- Retirement Simulation Complete ---")
-    # return final_balances, all_portfolio_histories
-
-
-
-
-
+    ret_planner.run_client_retirement_simulation(500, 100000, 500)
+    print()

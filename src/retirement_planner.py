@@ -70,6 +70,7 @@ class RetirementSimulatorModelPortfolios:
             pf_history_current_sim = self.constant_nominal_withdrawal(withdrawal_amount, pf_history_current_sim, current_sim_number, pre_retirement_months, post_retirement_months)
             all_portfolio_histories.append(pf_history_current_sim)
 
+
         end_time = time.perf_counter()
         duration = end_time - start_time
         print(f"Execution time: {duration:.6f} seconds")
@@ -80,6 +81,12 @@ class RetirementSimulatorModelPortfolios:
     def constant_nominal_contribution(self, contribution_amount, initial_balance, simulation_number:int, pre_retirement_months: int):
         current_balance = initial_balance
         portfolio_history_current_sim = [initial_balance]
+        weights = self.model_portfolio_weights.values.reshape(-1, 1)
+        sim_returns_pre_retirement = np.array([
+            self.loaded_sim_paths[asset_name][simulation_number, :pre_retirement_months]
+            for asset_name in self.asset_names
+        ])
+        portfolio_monthly_returns = (weights.T @ sim_returns_pre_retirement).flatten()
 
         for month_in_horizon in range(pre_retirement_months):
             sim_month_index = month_in_horizon
@@ -91,9 +98,13 @@ class RetirementSimulatorModelPortfolios:
                 for asset_name in self.asset_names
             ])
 
-            portfolio_monthly_return = np.sum(monthly_returns_all_assets * self.model_portfolio_weights.values)
-            current_balance = (current_balance *(1 + portfolio_monthly_return)) + contribution_amount
-            portfolio_history_current_sim.append(current_balance)
+
+        # Get the pre-calculated portfolio return for the current month
+        portfolio_monthly_return = portfolio_monthly_returns[month_in_horizon]
+
+        # Update the balance sequentiall
+        current_balance = (current_balance * (1 + portfolio_monthly_return)) + contribution_amount
+        portfolio_history_current_sim.append(current_balance)
 
         return portfolio_history_current_sim
 
